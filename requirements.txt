@@ -1,0 +1,7 @@
+langchain-community
+langchain-core
+langchain-openai
+langchain-pinecone
+pinecone
+python-dotenv
+pandas
