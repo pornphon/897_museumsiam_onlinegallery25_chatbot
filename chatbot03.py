@@ -16,7 +16,7 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 INDEX_NAME = os.getenv("PINECONE_INDEX")
 
-llm = ChatOpenAI(model_name="gpt-4")
+llm = ChatOpenAI(model_name="gpt-4o")
 
 
 # เชื่อมต่อ Pinecone
@@ -75,7 +75,7 @@ custom_prompt = PromptTemplate(
     input_variables=["context", "question"],
     template="""\
 คุณทำหน้าที่เป็นผู้เชี่ยวชาญวัตถุโบราณ
-โดยใช้ข้อมูลที่ให้ด้านล่างนี้ กรุณาตอบคำถามอย่างกระชับ 2-3 ประโยค
+โดยใช้ข้อมูลที่ให้ด้านล่างนี้ กรุณาตอบคำถามอย่างกระชับ 4-5 ประโยค
 
 ข้อมูลที่มี:
 {context}
@@ -88,15 +88,16 @@ custom_prompt = PromptTemplate(
 
 if question:
     with st.spinner("🔍 กำลังค้นหาคำตอบจาก Pinecone..."):
+    # mmr
         retriever = vectorstore.as_retriever(
-            search_type="similarity_score_threshold",
+            search_type="mmr",  # 🔥 Hybrid Search = MMR (Maximal Marginal Relevance)
             search_kwargs={
-            "score_threshold": 0.50,
-            "k": 2
-             }
+                "k": 4,             # ดึง 4 อันดับแรก
+                "fetch_k":10,      # ค้นเยอะก่อน แล้วคัดให้ดี
+            }
         )
-        results = retriever.get_relevant_documents(question)
-        #qa = RetrievalQA.from_chain_type(llm=llm,retriever=retriever,return_source_documents=True)       
+
+        # ตั้ง RetrievalQA
         qa = RetrievalQA.from_chain_type(
             llm=llm,
             retriever=retriever,
@@ -104,24 +105,61 @@ if question:
             chain_type_kwargs={"prompt": custom_prompt},
             return_source_documents=True,
         )
-        result=qa.invoke({"query":question})
+        result = qa.invoke({"query": question})
 
-   
-        if results:
-            for i, doc in enumerate(results, start=1):
-                st.markdown(f"### ✅ คำตอบที่ {i}")
-                st.write(doc.page_content)
+        st.subheader("📝 คำตอบสรุป:")
+        st.success(result["result"])
 
-                if doc.metadata.get("thumbnail"):
-                    st.image(doc.metadata["thumbnail"], width=200)
+        st.divider()
+        st.subheader("📚 ข้อมูลที่ใช้ตอบ:")
+        for i, doc in enumerate(result["source_documents"], start=1):
+            st.markdown(f"**{i}.** {doc.page_content}")
 
-                st.caption(f"🆔 ID: {doc.metadata.get('id')}")
+            if "thumbnail" in doc.metadata and doc.metadata["thumbnail"]:
+                st.image(doc.metadata["thumbnail"], width=200)
 
-            st.subheader("📝 คำตอบสรุป:")
-            st.write(result["result"])
+            if "id" in doc.metadata:
+                st.caption(f"🆔 ID: {doc.metadata['id']}")
+        # retriever = vectorstore.as_retriever(
+        #     search_type="similarity_score_threshold",
+        #     search_kwargs={
+        #         "score_threshold": 0.5,
+        #         "k": 3
+        #     }
+        # )
 
-            st.divider()
-            st.subheader("📚 แหล่งข้อมูลที่นำมาตอบ:")
-            for i, doc in enumerate(result["source_documents"], start=1):
-                st.markdown(f"### แหล่งข้อมูลที่ {i}")
-                st.write(doc.page_content)
+        # docs = retriever.get_relevant_documents(question)
+
+        # if docs:
+        #     # 1. แสดงทุกเอกสารก่อน
+        #     st.subheader("📚 เอกสารที่ค้นเจอ:")
+        #     for i, doc in enumerate(docs, start=1):
+        #         st.markdown(f"### เอกสารที่ {i}")
+        #         st.write(doc.page_content)
+
+        #         if doc.metadata.get("thumbnail"):
+        #             st.image(doc.metadata["thumbnail"], width=200)
+
+        #         st.caption(f"🆔 ID: {doc.metadata.get('id', 'ไม่ระบุ')}")
+
+        #     # 2. ส่ง context เข้า LLM เพื่อสรุป
+        #     context = "\n\n".join([doc.page_content for doc in docs])
+
+        #     chain = custom_prompt | llm
+        #     result = chain.invoke({
+        #         "context": context,
+        #         "question": question
+        #     })
+
+        #     st.divider()
+        #     st.subheader("📝 คำตอบสรุป:")
+        #     st.write(result.content)
+
+        # else:
+        #     st.warning("ไม่พบข้อมูลที่ตรงกับคำถามเลยครับ 🕵️‍♂️")
+
+
+
+
+##
+##ขอ ข้อมูลลายดอกบัวบาน
