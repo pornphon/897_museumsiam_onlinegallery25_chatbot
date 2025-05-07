@@ -1,7 +1,12 @@
+#การใช้งาน  เปิด xampp(mysql)
+
 import os
 import streamlit as st
 from dotenv import load_dotenv
 import pymysql
+import re
+
+from chatbot_stt_tts import tts
 
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_pinecone import PineconeVectorStore
@@ -28,7 +33,7 @@ index_names = {
     "historical_description_th": "antiquities-description-th-index"
 }
 
-# โหลดแต่ละ index
+# โหลดแต่ละ index 
 index_name = pc.Index(index_names["name_th"])
 index_material = pc.Index(index_names["material_tags"])
 index_artistic = pc.Index(index_names["artistic_description_th"])
@@ -40,13 +45,14 @@ embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 llm = ChatOpenAI(model="gpt-4o")
 
 # เตรียม VectorStores
-#vectorstore_name = PineconeVectorStore(index=index_name, embedding=embeddings, namespace="name_namespace")
 vectorstore_name = PineconeVectorStore(index=index_name, embedding=embeddings, namespace="")
 vectorstore_material = PineconeVectorStore(index=index_material, embedding=embeddings, namespace="")
 vectorstore_artistic = PineconeVectorStore(index=index_artistic, embedding=embeddings, namespace="")
 vectorstore_place = PineconeVectorStore(index=index_place, embedding=embeddings, namespace="")
 vectorstore_history = PineconeVectorStore(index=index_history, embedding=embeddings, namespace="")
 
+
+#get only 1 ids each call
 def get_antiquity_by_id_from_db(antiquity_id: str) -> dict:
     conn = pymysql.connect(
         host='localhost',
@@ -63,11 +69,48 @@ def get_antiquity_by_id_from_db(antiquity_id: str) -> dict:
     finally:
         conn.close()
 
+#get array of list 
+def get_antiquities_by_id_from_db(ids: list[str]) -> list[dict]:
+    if not ids:
+        return []
+    
+    with db_conn.cursor() as cursor:
+        format_strings = ','.join(['%s'] * len(ids))
+        query = f"SELECT * FROM antiquities WHERE id IN ({format_strings})"
+        cursor.execute(query, tuple(ids))
+        return cursor.fetchall()
+    
+    # conn = pymysql.connect(
+    #     host='localhost',
+    #     user='root',
+    #     password='',
+    #     database='vm_siam',
+    #     charset='utf8mb4',
+    #     cursorclass=pymysql.cursors.DictCursor
+    # )
+    # try:
+
+
+
+
+
+def get_db_connection():
+    return pymysql.connect(
+        host='localhost',
+        user='root',
+        password='',
+        database='vm_siam',
+        charset='utf8mb4',
+        cursorclass=pymysql.cursors.DictCursor
+    )
+
+db_conn = get_db_connection()
+
 # สร้าง Tools
 @tool
 def search_by_name(query: str) -> str:
     """ค้นหาวัตถุโบราณจากชื่อ ชิ้นส่วน (name_th) ชื่อลาย และคืน ID กลับมา"""
-    retriever = vectorstore_name.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+    retriever = vectorstore_name.as_retriever(search_type="similarity", search_kwargs={"k": 2})
     docs = retriever.invoke(query)
 
     if not docs:
@@ -77,15 +120,23 @@ def search_by_name(query: str) -> str:
     results = []
     textoutput =f"search_by_name พบ ID จาก Pinecone {len(ids)}: {', '.join(ids)}"
     st.write(textoutput)
-    
-    for id in ids:
-        data = get_antiquity_by_id_from_db(id)
-        if data:
-            # สรุปข้อความสั้น ๆ หรือดึงเฉพาะบาง field ก็ได้
-            summary = f"🆔 {data['id']}\n📛 ชื่อ: {data.get('name_th', '-')}\n📜 รายละเอียด: {data.get('artistic_description_th', '-')}\n📍 แหล่งที่พบ: {data.get('place_found', '-')}\n📍 thumbnail: {data.get('thumbnail', '-')}"
-            print("result: "+summary)
-            results.append(summary)
+
+    antiquities = get_antiquities_by_id_from_db(ids)
+
+    for data in antiquities:
+        summary = f"🆔 {data['id']}\n📛 ชื่อ: {data.get('name_th', '-')}\n📜 รายละเอียด: {data.get('artistic_description_th', '-')}\n📍 แหล่งที่พบ: {data.get('place_found', '-')}\n📍 thumbnail: {data.get('thumbnail', '-')}"
+        print("result: "+summary)
+        results.append(summary)
     return "\n\n".join(results)
+    
+    # for id in ids:
+    #     data = get_antiquity_by_id_from_db(id)
+    #     if data:
+    #         # สรุปข้อความสั้น ๆ หรือดึงเฉพาะบาง field ก็ได้
+    #         summary = f"🆔 {data['id']}\n📛 ชื่อ: {data.get('name_th', '-')}\n📜 รายละเอียด: {data.get('artistic_description_th', '-')}\n📍 แหล่งที่พบ: {data.get('place_found', '-')}\n📍 thumbnail: {data.get('thumbnail', '-')}"
+    #         # print("result: "+summary)
+    #         results.append(summary)
+    # return "\n\n".join(results)
 
 @tool
 def search_by_material(query: str) -> str:
@@ -188,13 +239,13 @@ tools = [
 agent_prompt = ChatPromptTemplate.from_messages([
     SystemMessagePromptTemplate.from_template(
     """
-คุณคือตัวช่วยตอบคำถามเกี่ยวกับวัตถุโบราณจากฐานข้อมูล
+คุณคือตัวช่วยตอบคำถามเกี่ยวกับวัตถุโบราณจากฐานข้อมูล นิสัยร่าเริง 
 
-หากคุณพบข้อมูลวัตถุโบราณที่เกี่ยวข้อง ให้สรุปในรูปแบบดังนี้:
+หากคุณพบข้อมูลวัตถุโบราณที่เกี่ยวข้อง ให้สรุปในรูปแบบดังนี้ มาแค่ 1 ชิ้น:
 
 id: [รหัสวัตถุ]  
 thumbnail: [URL รูปภาพ ถ้ามี]  
-คำอธิบาย: [คำอธิบายโดยย่อที่เข้าใจง่าย]
+คำอธิบาย: [คำอธิบายโดยย่อที่เข้าใจง่าย เป็นกันเอง มีการทวนคำถามก่อนตอบ]
 URL: [https://collection360.museumsiam.org/antiquities/detail/?id=[รหัสวัตถุ]]
 
 ถ้าไม่พบข้อมูลให้ตอบว่า "ไม่พบข้อมูลที่เกี่ยวข้อง"
@@ -216,9 +267,22 @@ st.title("Museum Siam - RAG + Agent")
 question = st.text_input("📥 พิมพ์คำถาม:")
 # Streamlit เริ่ม
 
+
+def extract_description(text):
+    match = re.search(r"คำอธิบาย:\s*(.+)", text)
+    if match:
+        print(f"Extract Des: {match.group(1).strip()}")
+        return match.group(1).strip()
+    return "ไม่พบคำอธิบาย"
+
+
 if question:
     with st.spinner("🔍 กำลังค้นหาคำตอบ..."):
         # Step 1: ใช้ Agent หา IDs
         agent_result = agent_executor.invoke({"input": question})
         ids = agent_result.get("output", "").split(",")
         st.write("agent_executor result: \n"+agent_result["output"])
+        description_only=extract_description(agent_result["output"])
+        #audio_url=tts(description_only)
+        #if audio_url:
+        #    st.audio(audio_url,format='audio/m4a')
