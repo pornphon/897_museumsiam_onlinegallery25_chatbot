@@ -80,18 +80,6 @@ def get_antiquities_by_id_from_db(ids: list[str]) -> list[dict]:
         cursor.execute(query, tuple(ids))
         return cursor.fetchall()
     
-    # conn = pymysql.connect(
-    #     host='localhost',
-    #     user='root',
-    #     password='',
-    #     database='vm_siam',
-    #     charset='utf8mb4',
-    #     cursorclass=pymysql.cursors.DictCursor
-    # )
-    # try:
-
-
-
 
 
 def get_db_connection():
@@ -129,14 +117,6 @@ def search_by_name(query: str) -> str:
         results.append(summary)
     return "\n\n".join(results)
     
-    # for id in ids:
-    #     data = get_antiquity_by_id_from_db(id)
-    #     if data:
-    #         # สรุปข้อความสั้น ๆ หรือดึงเฉพาะบาง field ก็ได้
-    #         summary = f"🆔 {data['id']}\n📛 ชื่อ: {data.get('name_th', '-')}\n📜 รายละเอียด: {data.get('artistic_description_th', '-')}\n📍 แหล่งที่พบ: {data.get('place_found', '-')}\n📍 thumbnail: {data.get('thumbnail', '-')}"
-    #         # print("result: "+summary)
-    #         results.append(summary)
-    # return "\n\n".join(results)
 
 @tool
 def search_by_material(query: str) -> str:

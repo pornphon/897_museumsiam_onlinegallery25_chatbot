@@ -1,52 +1,61 @@
-import azure.cognitiveservices.speech as speechsdk
 import os
+import azure.cognitiveservices.speech as speechsdk
+import pyaudio
 
-# กำหนด key และ region ของ Azure Speech
-speech_key = os.getenv("AZURE_SPEECH_KEY")
-service_region = os.getenv("AZURE_REGION")
+#tts แบบ streaming
+class AudioStreamCallback(speechsdk.audio.PushAudioOutputStreamCallback):
+    def __init__(self):
+        super().__init__()
+        # ตั้งค่า PyAudio
+        self.audio = pyaudio.PyAudio()
+        self.stream = self.audio.open(format=pyaudio.paInt16,
+                                      channels=1,
+                                      rate=16000,
+                                      output=True)
 
-# สร้าง SpeechConfig
-speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
-speech_config.speech_synthesis_language = "th-TH"  # ภาษาไทย
-speech_config.speech_synthesis_voice_name = "th-TH-PremwadeeNeural"  # เสียงตัวอย่าง
-
-# สร้าง AudioOutputConfig แบบ Stream
-stream = speechsdk.audio.AudioOutputStream.create_push_stream()
-audio_config = speechsdk.audio.AudioConfig(stream=stream)
-
-# สร้าง SpeechSynthesizer
-synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-
-# ฟังก์ชันรับข้อมูลจาก stream แล้วเขียนลงไฟล์
-class WavWriter:
-    def __init__(self, filename):
-        self.file = open(filename, 'wb')
-
-    def write(self, buffer: memoryview):
-        self.file.write(buffer)
+    def write(self, audio_buffer: memoryview) -> int:
+        # แปลง memoryview เป็น bytes ก่อนส่งให้ PyAudio
+        audio_data = bytes(audio_buffer)
+        self.stream.write(audio_data)
+        return len(audio_data)
 
     def close(self):
-        self.file.close()
+        print("Stream closed.")
+        self.stream.stop_stream()
+        self.stream.close()
+        self.audio.terminate()
 
-# เริ่มเขียน stream
-wav_writer = WavWriter("output_stream.wav")
+def text_to_speech_streaming(text):
+    # ตั้งค่า Azure Speech SDK
+    speech_key = os.getenv("AZURE_SPEECH_KEY")
+    service_region = os.getenv("AZURE_REGION")
 
-def stream_receiver(buffer: memoryview):
-    wav_writer.write(buffer)
 
-stream.set_on_audio_stream_received(stream_receiver)
 
-# สั่งให้ TTS ทำงาน
-text = "ยินดีต้อนรับสู่บริการแปลงข้อความเป็นเสียงของ Microsoft Azure"
-result = synthesizer.speak_text_async(text).get()
+    speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
+    speech_config.speech_synthesis_voice_name = "th-TH-NiwatNeural"
 
-# ตรวจสอบสถานะการสร้างเสียง
-if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
-    print("✅ สร้างเสียงสำเร็จ")
-elif result.reason == speechsdk.ResultReason.Canceled:
-    cancellation_details = result.cancellation_details
-    print(f"❌ ยกเลิก: {cancellation_details.reason}")
-    if cancellation_details.reason == speechsdk.CancellationReason.Error:
-        print(f"รายละเอียด: {cancellation_details.error_details}")
+    # สร้าง AudioStreamCallback
+    callback = AudioStreamCallback()
+    stream = speechsdk.audio.PushAudioOutputStream(callback)
 
-wav_writer.close()
+    # ตั้งค่า audio output เป็น stream
+    audio_output = speechsdk.audio.AudioOutputConfig(stream=stream)
+    speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_output)
+
+    # สร้าง event handler สำหรับการตรวจจับการเสร็จสิ้นการสังเคราะห์เสียง
+    def handle_synthesis_result(evt):
+        if evt.result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+            print("Synthesis completed")
+        elif evt.result.reason == speechsdk.ResultReason.Canceled:
+            cancellation_details = evt.result.cancellation_details
+            print(f"Synthesis canceled: {cancellation_details.reason}")
+
+    speech_synthesizer.synthesis_completed.connect(handle_synthesis_result)
+
+    # เริ่มการสร้างเสียงแบบ streaming
+    print("Starting TTS streaming...")
+    speech_synthesizer.speak_text_async(text).get()
+
+if __name__ == "__main__":
+    text_to_speech_streaming("ปัญหานี้เกิดจากการที่ audio_buffer ที่รับมาจาก Azure TTS เป็น memoryview object แต่ PyAudio ต้องการ bytes-like object เช่น bytes หรือ bytearray แทน memoryview")

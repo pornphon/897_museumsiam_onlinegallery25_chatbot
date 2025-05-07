@@ -3,11 +3,9 @@ import pyttsx3
 import requests
 from tts_botnoi import tts
 import os
-
 from playsound import playsound
 
-
-#ใช้ open AI ในการ stt 
+#ใช้ open AI ในการ stt จาก mp3 (transcripe) + tts  โดยใช้ botnoi  แต่ botnoi ไม่สามารถส่งข้อมูลแบบ stream ได้
 
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 #client = os.getenv("OPENAI_API_KEY")
